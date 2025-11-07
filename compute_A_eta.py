@@ -385,64 +385,221 @@ def compute_A_eta(
 
 
 def load_A_eta_interpolator(path: str):
-    """Load an interpolator for A(η) from HDF5.
+    """Load a local, on-demand interpolator for A(η) from HDF5.
 
-    Preferred: 6D grid (mu_DM, beta_DM, sigma_DM, mu_gamma, sigma_gamma, alpha).
-    Backward compatible: 5D grid without sigma_gamma; returns a wrapper that
-    accepts 6D inputs and ignores the sigma_gamma column.
+    - Supports 6D tables: (mu_DM, beta_DM, sigma_DM, mu_gamma, sigma_gamma, alpha).
+    - Backwards compatible with 5D tables that omit sigma_gamma. In that case,
+      inputs are still 6D but the sigma_gamma coordinate is ignored.
+
+    This implementation avoids loading the full A_grid into memory. Instead, it
+    loads a small local block (up to 5 points per dimension) around each query
+    using h5py slicing and performs linear interpolation via
+    scipy.interpolate.RegularGridInterpolator on that block. A simple last-block
+    cache accelerates repeated queries in the same neighborhood.
     """
 
-    import h5py
     import numpy as np
+    import h5py
     from scipy.interpolate import RegularGridInterpolator
 
-    with h5py.File(path, "r") as f:
-        mu_DM_grid = np.array(f["grids/mu_DM_grid"])
-        beta_DM_grid = np.array(f["grids/beta_DM_grid"])
-        sigma_DM_grid = np.array(f["grids/sigma_DM_grid"])
-        A_grid = np.array(f["grids/A_grid"])  # may be 5D or 6D
+    class LocalAInterpolator:
+        def __init__(self, h5path: str, window: int = 2):
+            self._h5path = h5path
+            self._file = h5py.File(h5path, "r")
+            self._dset = self._file["grids/A_grid"]
+            self._pid = os.getpid()
 
-        # Try to read gamma grids; sigma_gamma may not exist for legacy 5D
-        mu_gamma_grid = np.array(f["grids/mu_gamma_grid"]) if "grids/mu_gamma_grid" in f else None
-        sigma_gamma_grid = (
-            np.array(f["grids/sigma_gamma_grid"]) if "grids/sigma_gamma_grid" in f else None
-        )
-        alpha_grid = np.array(f["grids/alpha_grid"]) if "grids/alpha_grid" in f else None
+            # Grids (always load into memory; small compared to A_grid)
+            self.mu_DM_grid = np.array(self._file["grids/mu_DM_grid"])  # (Nmu,)
+            self.beta_DM_grid = np.array(self._file["grids/beta_DM_grid"])  # (Nbeta,)
+            self.sigma_DM_grid = np.array(self._file["grids/sigma_DM_grid"])  # (Nsigma,)
+            self.mu_gamma_grid = (
+                np.array(self._file["grids/mu_gamma_grid"]) if "grids/mu_gamma_grid" in self._file else None
+            )
+            self.sigma_gamma_grid = (
+                np.array(self._file["grids/sigma_gamma_grid"]) if "grids/sigma_gamma_grid" in self._file else None
+            )
+            self.alpha_grid = np.array(self._file["grids/alpha_grid"]) if "grids/alpha_grid" in self._file else None
 
-    if A_grid.ndim == 6 and (sigma_gamma_grid is not None):
-        return RegularGridInterpolator(
-            (mu_DM_grid, beta_DM_grid, sigma_DM_grid, mu_gamma_grid, sigma_gamma_grid, alpha_grid),
-            A_grid,
-            method="linear",
-            bounds_error=False,
-            fill_value=None,
-        )
+            # Determine dimensionality and mapping from 6D input -> table dims
+            if self._dset.ndim == 6 and self.sigma_gamma_grid is not None:
+                self._dims = 6
+                # Order in table
+                self._grid_list = [
+                    self.mu_DM_grid,
+                    self.beta_DM_grid,
+                    self.sigma_DM_grid,
+                    self.mu_gamma_grid,
+                    self.sigma_gamma_grid,
+                    self.alpha_grid,
+                ]
+                # Indices to take from a 6D input point
+                self._input_to_table_idx = (0, 1, 2, 3, 4, 5)
+            elif self._dset.ndim == 5 and (self.mu_gamma_grid is not None) and (self.alpha_grid is not None):
+                # Legacy 5D: (mu, beta, sigma, mu_gamma, alpha)
+                self._dims = 5
+                self._grid_list = [
+                    self.mu_DM_grid,
+                    self.beta_DM_grid,
+                    self.sigma_DM_grid,
+                    self.mu_gamma_grid,
+                    self.alpha_grid,
+                ]
+                # Map from 6D input -> 5D table (skip sigma_gamma)
+                self._input_to_table_idx = (0, 1, 2, 3, 5)
+            else:
+                raise ValueError("Unsupported A_grid dimensionality or missing grids in HDF5 file")
 
-    if A_grid.ndim == 5 and (mu_gamma_grid is not None) and (alpha_grid is not None):
-        # Legacy 5D table: (mu, beta, sigma, mu_gamma, alpha)
-        rgi5 = RegularGridInterpolator(
-            (mu_DM_grid, beta_DM_grid, sigma_DM_grid, mu_gamma_grid, alpha_grid),
-            A_grid,
-            method="linear",
-            bounds_error=False,
-            fill_value=None,
-        )
+            # Local window size on each side; target block length up to 2*window+1 (i.e. 5)
+            self.window = int(window)
 
-        class _Adapter6Dto5D:
-            def __call__(self, pts):
-                arr = np.asarray(pts)
-                if arr.ndim == 1 and arr.size == 6:
-                    mu, beta, sigma, mu_g, sig_g, alpha = map(float, arr)
-                    return rgi5((mu, beta, sigma, mu_g, alpha))
-                elif arr.ndim == 2 and arr.shape[-1] >= 6:
-                    p5 = np.column_stack([arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 5]])
-                    return rgi5(p5)
+            # Simple last-block cache
+            self._cache_key = None  # tuple of ( (start, stop), ... )
+            self._cache_interpolator = None  # RegularGridInterpolator instance
+            self._cache_grids = None  # list of 1D arrays for each dim in block
+
+        def close(self):
+            try:
+                if self._file:
+                    self._file.close()
+            except Exception:
+                pass
+
+        def __del__(self):
+            self.close()
+
+        def _nearest_center_index(self, grid: np.ndarray, v: float) -> int:
+            # Find nearest grid index to v
+            i = int(np.searchsorted(grid, v, side="left"))
+            if i <= 0:
+                return 0
+            if i >= grid.size:
+                return grid.size - 1
+            # Compare neighbors
+            left = i - 1
+            if abs(v - grid[left]) <= abs(grid[i] - v):
+                return left
+            return i
+
+        def _block_bounds(self, grid: np.ndarray, center: int) -> tuple[int, int]:
+            # Compute [start, stop) for a block centered at index 'center'
+            n = grid.size
+            start = max(center - self.window, 0)
+            stop = min(center + self.window + 1, n)
+            # Ensure at least 2 points for linear interpolation
+            if stop - start < 2:
+                if stop < n:
+                    stop = min(start + 2, n)
                 else:
-                    raise ValueError("A(eta) adapter expects points of shape (6,) or (N,6)")
+                    start = max(n - 2, 0)
+            return start, stop
 
-        return _Adapter6Dto5D()
+        def _slices_for_point(self, pt6: np.ndarray) -> tuple:
+            # Map 6D input to table's coordinate order and compute per-dim slices
+            coords = [float(pt6[i]) for i in self._input_to_table_idx]
+            starts_stops = []
+            for g, v in zip(self._grid_list, coords):
+                c = self._nearest_center_index(g, v)
+                s, e = self._block_bounds(g, c)
+                starts_stops.append((s, e))
+            return tuple(slice(s, e) for (s, e) in starts_stops), tuple(starts_stops)
 
-    raise ValueError("Unsupported A_grid dimensionality or missing grids in HDF5 file")
+        def _get_interpolator_for_slices(self, slices: tuple, key: tuple):
+            # Check cache
+            if self._cache_key == key and self._cache_interpolator is not None:
+                return self._cache_interpolator, self._cache_grids
+
+            # Load local block from HDF5
+            sub_grids = [g[s] for g, s in zip(self._grid_list, slices)]
+            sub_vals = self._dset[slices]
+
+            rgi = RegularGridInterpolator(
+                tuple(sub_grids),
+                sub_vals,
+                method="linear",
+                bounds_error=False,
+                fill_value=None,
+            )
+
+            # Update cache
+            self._cache_key = key
+            self._cache_interpolator = rgi
+            self._cache_grids = sub_grids
+            return rgi, sub_grids
+
+        def __call__(self, pts):
+            # Reopen HDF5 file in child processes if needed (safe for multiprocessing)
+            cur_pid = os.getpid()
+            if cur_pid != self._pid:
+                try:
+                    # Drop cached state relying on the previous file handle
+                    if self._file:
+                        try:
+                            self._file.close()
+                        except Exception:
+                            pass
+                    self._file = h5py.File(self._h5path, "r")
+                    self._dset = self._file["grids/A_grid"]
+                    self._pid = cur_pid
+                    # Invalidate cache as underlying objects changed
+                    self._cache_key = None
+                    self._cache_interpolator = None
+                    self._cache_grids = None
+                except Exception:
+                    # If reopen fails, proceed and let h5py raise later on first access
+                    self._pid = cur_pid
+
+            arr = np.asarray(pts, dtype=float)
+            if arr.ndim == 1:
+                if arr.size < 6:
+                    raise ValueError("A(eta) expects points of shape (6,) or (N,6)")
+                arr2 = arr.reshape(1, -1)
+                single = True
+            elif arr.ndim == 2 and arr.shape[1] >= 6:
+                arr2 = arr
+                single = False
+            else:
+                raise ValueError("A(eta) expects points of shape (6,) or (N,6)")
+
+            # Group points by their local block (slices)
+            keys = []
+            slices_list = []
+            for p in arr2:
+                slc, key = self._slices_for_point(p)
+                slices_list.append(slc)
+                keys.append(key)
+
+            results = np.empty(arr2.shape[0], dtype=float)
+
+            # Process groups sharing the same block
+            # Build mapping: key -> indices
+            from collections import defaultdict
+
+            groups = defaultdict(list)
+            for i, k in enumerate(keys):
+                groups[k].append(i)
+
+            for k, idxs in groups.items():
+                slc = slices_list[idxs[0]]
+                rgi, _ = self._get_interpolator_for_slices(slc, k)
+
+                # Prepare local coordinates for this block
+                pts_local = []
+                for i in idxs:
+                    # select the relevant dims from the 6D input according to table mapping
+                    if self._dims == 6:
+                        coord = arr2[i, [0, 1, 2, 3, 4, 5]]
+                    else:  # 5D legacy, drop sigma_gamma (index 4)
+                        coord = arr2[i, [0, 1, 2, 3, 5]]
+                    pts_local.append(coord)
+                pts_local = np.asarray(pts_local, dtype=float)
+
+                vals = rgi(pts_local)
+                results[idxs] = vals
+
+            return results[0] if single else results
+
+    return LocalAInterpolator(path)
 
 
 if __name__ == "__main__":
