@@ -251,7 +251,11 @@ def compute_A_eta(
     MU_G, SG_G = np.meshgrid(mu_gamma_grid, sigma_gamma_grid, indexing="ij")
     MU_G = MU_G[:, :, None]
     SG_G = SG_G[:, :, None]
-    p_gamma_table = np.exp(-0.5 * ((gamma_in - MU_G) / SG_G) ** 2) / (SG_G * np.sqrt(2 * np.pi))
+    # Truncated-normal on [0, 2]: pdf / Z where Z = CDF(2) - CDF(0)
+    pdf = np.exp(-0.5 * ((gamma_in - MU_G) / SG_G) ** 2) / (SG_G * np.sqrt(2 * np.pi))
+    Z = norm.cdf(2.0, loc=MU_G, scale=SG_G) - norm.cdf(0.0, loc=MU_G, scale=SG_G)
+    Z = np.clip(Z, 1e-12, None)
+    p_gamma_table = pdf / Z
     # Ensure contiguity and float32 to speed einsum and save memory
     p_gamma_table = np.ascontiguousarray(p_gamma_table.astype(np.float32, copy=False))
 
