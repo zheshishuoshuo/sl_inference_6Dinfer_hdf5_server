@@ -1,0 +1,19 @@
+#!/bin/bash
+#PBS -N mcmc
+#PBS -m abe
+#PBS -M zhangshuo01@sjtu.edu.cn
+#PBS -l nodes=6:ppn=72
+#PBS -l mem=1800gb
+#PBS -l walltime=40:00:00
+#PBS -q normal
+#PBS -j oe
+#PBS -o /home/shuoz/sl_inference_6Dinfer_hdf5_server/mcmc.log
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate base
+
+cd $PBS_O_WORKDIR
+echo 1
+cd /home/shuoz/
+python3 -m sl_inference_6Dinfer_hdf5_server.main
+echo 2
