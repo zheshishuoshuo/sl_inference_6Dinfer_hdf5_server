@@ -39,8 +39,8 @@ def build_dm_grid2d(
     logMh_min: float = 11.0,
     logMh_max: float = 15.0,
     n_logMh: int = 30,
-    gamma_min: float = 0.4,
-    gamma_max: float = 1.6,
+    gamma_min: float = 0,
+    gamma_max: float = 2,
     n_gamma: int = 30,
 ) -> DMGrid2D:
     """Construct a reusable 2D grid over (logMh, gamma_h).

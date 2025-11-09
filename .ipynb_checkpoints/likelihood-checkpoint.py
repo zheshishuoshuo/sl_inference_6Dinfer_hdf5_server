@@ -230,7 +230,7 @@ def single_lens_likelihood(
     P_logMh_grid = norm.pdf(M_halo_axis[:, None], loc=(mu_h + beta_h * (Msps_grid - 11.4)), scale=max(float(sigma_h), 1e-12))
     factors_constant_grid = grid.factors_constant
     # Truncated-normal prior for gamma on [0.4, 1.6]
-    _g_lo, _g_hi = 0.4, 1.6
+    _g_lo, _g_hi = 0, 2
     _Zg = float(norm.cdf(_g_hi, loc=mu_gamma, scale=sigma_gamma) - norm.cdf(_g_lo, loc=mu_gamma, scale=sigma_gamma))
     if not np.isfinite(_Zg) or _Zg <= 0:
         _Zg = 1e-12
