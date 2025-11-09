@@ -107,7 +107,7 @@ def main(
     seed = 420
 
     # default sample size (can override via CLI)
-    n_galaxy = int(n_galaxy) if n_galaxy is not None else 30000
+    n_galaxy = int(n_galaxy) if n_galaxy is not None else 10000
 
     print(f"Generating mock data with {n_galaxy} galaxies, logalpha={logalpha}, seed={seed} ...")
      # 4e-4 for 200k
@@ -129,7 +129,7 @@ def main(
         n_jobs=None,
     )
 
-    nsteps = 3000
+    nsteps = 1000
 
     ts = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     backend_file = f"chains_{int(mock_lens_data.shape[0])}lens_noeta_{ts}_{seed}.h5"
@@ -139,7 +139,7 @@ def main(
     sampler = run_mcmc(
         grids,
         nsteps=nsteps,
-        nwalkers=60,
+        nwalkers=40,
         # 6D initial guess: (alpha_sps, mu_h, beta_h, sigma_h, mu_gamma, sigma_gamma)
         initial_guess=np.array([0.01, 12.91, 2.04, 0.37, 1.0, 0.2]),
         backend_file=backend_file,
