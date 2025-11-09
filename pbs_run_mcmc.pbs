@@ -2,8 +2,8 @@
 #PBS -N mcmc
 #PBS -m abe
 #PBS -M zhangshuo01@sjtu.edu.cn
-#PBS -l nodes=6:ppn=72
-#PBS -l mem=1800gb
+#PBS -l nodes=4:ppn=72
+#PBS -l mem=1200gb
 #PBS -l walltime=40:00:00
 #PBS -q normal
 #PBS -j oe

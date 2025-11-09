@@ -45,7 +45,7 @@ def init_a_interpolator():
         file_path = os.path.join(
             os.path.dirname(__file__),
             'aeta_tables',
-            'Aeta6D_mu50_beta50_sigma50_mugamma50_sigmagamma50_alpha50.h5',
+            'Aeta6D_mu30_beta30_sigma30_mugamma30_sigmagamma30_alpha30.h5',
         )
         A_INTERP = load_A_eta_interpolator(file_path)
     return A_INTERP
@@ -115,7 +115,7 @@ def log_prior(theta: Sequence[float]) -> float:
         return -np.inf
     if not (0.51 <= mu_gamma <= 1.49):
         return -np.inf
-    if not (0.1 <= sigma_gamma <= 0.30):
+    if not (0.16 <= sigma_gamma <= 0.24):
         return -np.inf
 
     return 0.0  # 平坦先验
@@ -229,7 +229,12 @@ def single_lens_likelihood(
     P_logRe = norm.pdf(logRe_obs, loc=(MODEL_P["mu_R0"] + MODEL_P["beta_R"] * (Msps_grid - 11.4)), scale=MODEL_P["sigma_R"])
     P_logMh_grid = norm.pdf(M_halo_axis[:, None], loc=(mu_h + beta_h * (Msps_grid - 11.4)), scale=max(float(sigma_h), 1e-12))
     factors_constant_grid = grid.factors_constant
-    P_gamma_h_grid = norm.pdf(Gamma_h_axis[None, :], loc=mu_gamma, scale=sigma_gamma)
+    # Truncated-normal prior for gamma on [0.4, 1.6]
+    _g_lo, _g_hi = 0.4, 1.6
+    _Zg = float(norm.cdf(_g_hi, loc=mu_gamma, scale=sigma_gamma) - norm.cdf(_g_lo, loc=mu_gamma, scale=sigma_gamma))
+    if not np.isfinite(_Zg) or _Zg <= 0:
+        _Zg = 1e-12
+    P_gamma_h_grid = norm.pdf(Gamma_h_axis[None, :], loc=mu_gamma, scale=sigma_gamma) / _Zg
 
 
 

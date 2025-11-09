@@ -107,7 +107,7 @@ def main(
     seed = 420
 
     # default sample size (can override via CLI)
-    n_galaxy = int(n_galaxy) if n_galaxy is not None else 10000
+    n_galaxy = int(n_galaxy) if n_galaxy is not None else 30000
 
     print(f"Generating mock data with {n_galaxy} galaxies, logalpha={logalpha}, seed={seed} ...")
      # 4e-4 for 200k

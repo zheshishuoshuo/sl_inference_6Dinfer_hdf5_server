@@ -45,7 +45,7 @@ def init_a_interpolator():
         file_path = os.path.join(
             os.path.dirname(__file__),
             'aeta_tables',
-            'Aeta6D_mu50_beta50_sigma50_mugamma50_sigmagamma50_alpha50.h5',
+            'Aeta6D_mu30_beta30_sigma30_mugamma30_sigmagamma30_alpha30.h5',
         )
         A_INTERP = load_A_eta_interpolator(file_path)
     return A_INTERP
@@ -115,7 +115,7 @@ def log_prior(theta: Sequence[float]) -> float:
         return -np.inf
     if not (0.51 <= mu_gamma <= 1.49):
         return -np.inf
-    if not (0.1 <= sigma_gamma <= 0.30):
+    if not (0.16 <= sigma_gamma <= 0.24):
         return -np.inf
 
     return 0.0  # 平坦先验

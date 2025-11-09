@@ -186,7 +186,7 @@ def build_eta_grid():
     dimension participating in the A(eta) integral.
     """
 
-    N = 50
+    N = 30
 
     mu_DM_grid = np.linspace(12, 14, N)
     beta_DM_grid = np.linspace(1, 3, N)
@@ -381,7 +381,13 @@ def compute_A_eta(
         gcache.attrs["zl"] = float(samples["zl"]) if np.isscalar(samples["zl"]) else float(np.asarray(samples["zl"]).ravel()[0])
         gcache.attrs["zs"] = float(samples["zs"]) if np.isscalar(samples["zs"]) else float(np.asarray(samples["zs"]).ravel()[0])
 
-    return out_path
+    # 所有写入结束后，添加以下内容：
+    import gc, sys
+    gc.collect()
+    print("Computation done. Exiting.", flush=True)
+    sys.exit(0)
+
+    return out_path  # ← 这行可以删掉或保留，但不会被执行
 
 
 # Provide a convenience alias reflecting the terminology in the documentation
