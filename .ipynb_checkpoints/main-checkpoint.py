@@ -107,7 +107,7 @@ def main(
     seed = 420
 
     # default sample size (can override via CLI)
-    n_galaxy = int(n_galaxy) if n_galaxy is not None else 10000
+    n_galaxy = int(n_galaxy) if n_galaxy is not None else 140000
 
     print(f"Generating mock data with {n_galaxy} galaxies, logalpha={logalpha}, seed={seed} ...")
      # 4e-4 for 200k
@@ -141,7 +141,7 @@ def main(
         nsteps=nsteps,
         nwalkers=40,
         # 6D initial guess: (alpha_sps, mu_h, beta_h, sigma_h, mu_gamma, sigma_gamma)
-        initial_guess=np.array([0.01, 12.91, 2.04, 0.37, 1.0, 0.2]),
+        initial_guess=np.array([0.0, 12.91, 2.04, 0.37, 1.0, 0.2]),
         backend_file=backend_file,
         parallel=True,
         nproc=max(1, mp.cpu_count() - 2),

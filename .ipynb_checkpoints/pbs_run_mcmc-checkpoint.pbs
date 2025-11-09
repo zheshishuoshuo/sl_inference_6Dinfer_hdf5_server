@@ -7,7 +7,7 @@
 #PBS -l walltime=40:00:00
 #PBS -q normal
 #PBS -j oe
-#PBS -o /home/shuoz/sl_inference_6Dinfer_hdf5_server/mcmc.log
+#PBS -o /home/shuoz/sl_inference_6Dinfer_hdf5_server/mcmc1.log
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate base
